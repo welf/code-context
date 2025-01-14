@@ -1,0 +1,30 @@
+use anyhow::{Context, Result};
+use clap::Parser;
+use std::path::PathBuf;
+use self::processor::{FileProcessor, Processor};
+mod module_path;
+mod processor;
+mod transformer;
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct Cli {
+    /// Input file or directory path
+    input_path: PathBuf,
+    /// Output directory path (default: "code-context")
+    #[arg(short = 'o', long = "output-dir")]
+    output_dir_name: Option<String>,
+    /// Remove all comments (including doc comments)
+    #[arg(long)]
+    no_comments: bool,
+    /// Print processing statistics
+    #[arg(long)]
+    no_stats: bool,
+    /// Run without writing output files
+    #[arg(long)]
+    dry_run: bool,
+    /// Output all files into a single combined file
+    #[arg(long)]
+    single_file: bool,
+}
+fn main() -> Result<()> {}
+fn create_processor(cli: &Cli) -> impl Processor {}

@@ -1,0 +1,59 @@
+use crate::{module_path::ModulePath, transformer::{CodeTransformer, RustAnalyzer}};
+use anyhow::{Context, Result};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::path::{Path, PathBuf};
+use syn::visit_mut::VisitMut;
+use walkdir::WalkDir;
+#[derive(Default, Clone)]
+pub struct ProcessingStats {
+    pub files_processed: usize,
+    pub input_size: usize,
+    pub output_size: usize,
+}
+impl ProcessingStats {
+    pub fn reduction_percentage(&self) -> f64 {}
+}
+pub trait Processor {
+    /// This is a required method
+    fn dry_run(&self) -> bool;
+    /// This is a required method
+    fn single_file(&self) -> bool;
+    /// This is a required method
+    fn no_comments(&self) -> bool;
+    /// This is a required method
+    fn process_file(&self, input: &Path, output: &Path) -> Result<(usize, usize)>;
+    /// There is a default implementation
+    fn process_directory_to_single_file(
+        &self,
+        input_dir: &Path,
+        output_base: &Path,
+    ) -> Result<ProcessingStats> {}
+    /// There is a default implementation
+    fn get_output_path(input: &Path, output_dir_name: Option<&str>) -> Result<PathBuf> {}
+    /// There is a default implementation
+    fn process_path(
+        &self,
+        input: &Path,
+        output_dir_name: Option<&str>,
+    ) -> Result<ProcessingStats> {}
+    /// There is a default implementation
+    fn process_directory(
+        &self,
+        input_dir: &Path,
+        output_base: &Path,
+    ) -> Result<ProcessingStats> {}
+}
+pub struct FileProcessor {
+    no_comments: bool,
+    dry_run: bool,
+    single_file: bool,
+}
+impl FileProcessor {
+    pub fn with_options(no_comments: bool, dry_run: bool, single_file: bool) -> Self {}
+}
+impl Processor for FileProcessor {
+    fn dry_run(&self) -> bool {}
+    fn single_file(&self) -> bool {}
+    fn no_comments(&self) -> bool {}
+    fn process_file(&self, input: &Path, output: &Path) -> Result<(usize, usize)> {}
+}
