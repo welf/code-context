@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use self::processor::{FileProcessor, Processor};
 mod module_path;
 mod processor;
+mod test_utils;
 mod transformer;
 #[derive(Parser, Debug)]
 #[command(author, version, about)]

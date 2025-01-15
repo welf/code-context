@@ -7,7 +7,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 use syn::visit_mut::VisitMut;
 use walkdir::WalkDir;
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct ProcessingStats {
     pub files_processed: usize,
     pub input_size: usize,
@@ -77,6 +77,10 @@ impl ModulePath {
 }
 
 
+// File: test_utils.rs
+
+
+
 // File: main.rs
 
 use anyhow::{Context, Result};
@@ -85,6 +89,7 @@ use std::path::PathBuf;
 use self::processor::{FileProcessor, Processor};
 mod module_path;
 mod processor;
+mod test_utils;
 mod transformer;
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
