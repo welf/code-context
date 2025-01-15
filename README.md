@@ -1,6 +1,6 @@
 # Code Context Generator for LLMs
 
-![Build Status](https://img.shields.io/github/workflow/status/welf/code-context/ci.yml?branch=main)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/welf/code-context/.github%2Fworkflows%2Fci.yml)
 ![License](https://img.shields.io/github/license/welf/code-context)
 
 A CLI tool designed to process Rust source code, creating a high-level context
