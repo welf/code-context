@@ -391,22 +391,8 @@ impl VisitMut for CodeTransformer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::test_utils::process_code;
     use anyhow::Result;
-    use syn::visit_mut::VisitMut;
-
-    /// Helper function to process a string of Rust code
-    fn process_code(code: &str, no_comments: bool) -> Result<String> {
-        let analyzer = RustAnalyzer::new(code)?;
-        let mut transformer = CodeTransformer::new(no_comments);
-
-        let mut ast = analyzer.ast;
-        transformer.visit_file_mut(&mut ast);
-
-        let output = prettyplease::unparse(&ast);
-
-        Ok(output)
-    }
 
     #[test]
     fn test_regular_function() -> Result<()> {
