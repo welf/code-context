@@ -23,7 +23,11 @@ struct Cli {
     #[arg(long)]
     no_comments: bool,
 
-    /// Print processing statistics
+    /// Remove function bodies except for string/serialization methods
+    #[arg(long)]
+    no_function_bodies: bool,
+
+    /// Don't print processing statistics
     #[arg(long)]
     no_stats: bool,
 
@@ -63,14 +67,18 @@ fn main() -> Result<()> {
 }
 
 fn create_processor(cli: &Cli) -> impl Processor {
-    FileProcessor::with_options(cli.no_comments, cli.dry_run, cli.single_file)
+    FileProcessor::with_options(
+        cli.no_comments,
+        cli.no_function_bodies,
+        cli.dry_run,
+        cli.single_file,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
-    use std::io::{self, Write};
     use tempfile::TempDir;
 
     #[test]
@@ -126,6 +134,7 @@ mod tests {
             input_path: PathBuf::from("test"),
             output_dir_name: None,
             no_comments: true,
+            no_function_bodies: false,
             no_stats: false,
             dry_run: true,
             single_file: true,
@@ -161,41 +170,6 @@ mod tests {
 
         assert_eq!(stats.files_processed, 1);
         assert!(stats.input_size > 0);
-        Ok(())
-    }
-
-    #[test]
-    fn test_main_with_stats_output() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let test_file = temp_dir.path().join("test.rs");
-        fs::write(&test_file, "fn main() { println!(\"test\"); }")?;
-
-        // Capture stdout
-        let stdout = io::stdout();
-        let mut handle = stdout.lock();
-
-        let args = vec!["program", test_file.to_str().unwrap(), "--dry-run"];
-        let cli = Cli::try_parse_from(args)?;
-        assert!(!cli.no_stats, "Stats should be enabled by default");
-
-        let processor = create_processor(&cli);
-        let stats = processor.process_path(&cli.input_path, cli.output_dir_name.as_deref())?;
-
-        writeln!(handle, "\nProcessing Statistics:")?;
-        writeln!(handle, "Files processed: {}", stats.files_processed)?;
-        writeln!(handle, "Total input size: {} bytes", stats.input_size)?;
-        writeln!(handle, "Total output size: {} bytes", stats.output_size)?;
-        writeln!(
-            handle,
-            "Size reduction: {:.1}%",
-            stats.reduction_percentage()
-        )?;
-
-        assert!(stats.files_processed > 0);
-        assert!(stats.input_size > 0);
-        assert!(stats.output_size > 0);
-        assert!(stats.reduction_percentage() > 0.0);
-
         Ok(())
     }
 
@@ -262,44 +236,35 @@ mod tests {
     }
 
     #[test]
-    fn test_main_with_stats_display() -> Result<()> {
+    fn test_main_with_stats_output() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.rs");
-        fs::write(&test_file, "fn main() { println!(\"test\"); }")?;
+        fs::write(
+            &test_file,
+            r#"
+            fn main() {
+                println!("Starting program");
+                let mut sum = 0;
+                for i in 0..100 {
+                    sum += i;
+                    println!("Current sum: {}", sum);
+                }
+                println!("Final sum: {}", sum);
+            }
+        "#,
+        )?;
 
-        // Capture stdout
-        let mut output = Vec::new();
-        {
-            let cli = Cli {
-                input_path: test_file.clone(),
-                output_dir_name: None,
-                no_comments: false,
-                no_stats: false,
-                dry_run: true,
-                single_file: false,
-            };
+        let args = vec![
+            "program",
+            test_file.to_str().unwrap(),
+            "--no-comments",
+            "--no-function-bodies",
+        ];
+        let cli = Cli::try_parse_from(args)?;
+        let stats =
+            create_processor(&cli).process_path(&cli.input_path, cli.output_dir_name.as_deref())?;
 
-            let processor = create_processor(&cli);
-            let stats = processor.process_path(&cli.input_path, cli.output_dir_name.as_deref())?;
-
-            writeln!(output, "\nProcessing Statistics:")?;
-            writeln!(output, "Files processed: {}", stats.files_processed)?;
-            writeln!(output, "Total input size: {} bytes", stats.input_size)?;
-            writeln!(output, "Total output size: {} bytes", stats.output_size)?;
-            writeln!(
-                output,
-                "Size reduction: {:.1}%",
-                stats.reduction_percentage()
-            )?;
-        }
-
-        let output_str = String::from_utf8(output)?;
-        assert!(output_str.contains("Processing Statistics:"));
-        assert!(output_str.contains("Files processed:"));
-        assert!(output_str.contains("Total input size:"));
-        assert!(output_str.contains("Total output size:"));
-        assert!(output_str.contains("Size reduction:"));
-
+        assert!(stats.reduction_percentage() > 0.0);
         Ok(())
     }
 
@@ -316,6 +281,7 @@ mod tests {
             input_path: test_file,
             output_dir_name: Some("test-output".to_string()),
             no_comments: true,
+            no_function_bodies: false,
             no_stats: true,
             dry_run: true,
             single_file: false,

@@ -30,6 +30,8 @@ impl RustAnalyzer {
                 if path_str.contains("String")
                     || path_str.contains("str")
                     || path_str.contains("Cow<str>")
+                    || path_str.contains("ToString")
+                    || path_str.contains("Display")
                 {
                     return true;
                 }
@@ -62,12 +64,16 @@ impl RustAnalyzer {
 
 pub struct CodeTransformer {
     no_comments: bool,
+    no_function_bodies: bool,
 }
 
 impl CodeTransformer {
     /// Creates a new CodeTransformer instance
-    pub fn new(no_comments: bool) -> Self {
-        Self { no_comments }
+    pub fn new(no_comments: bool, no_function_bodies: bool) -> Self {
+        Self {
+            no_comments,
+            no_function_bodies,
+        }
     }
 
     /// Gets attributes from any Item type
@@ -323,8 +329,10 @@ impl VisitMut for CodeTransformer {
                 // Process function-level comments
                 Self::process_attributes(&mut item_fn.attrs, self.no_comments);
 
-                // Replace with empty block
-                item_fn.block = parse_quote!({});
+                // Only replace block if no_function_bodies is true and return type isn't string-like
+                if self.no_function_bodies && !Self::analyze_return_type(&item_fn.sig.output) {
+                    item_fn.block = parse_quote!({});
+                }
             }
             Item::Trait(item_trait) => {
                 // Process trait-level comments
@@ -338,6 +346,7 @@ impl VisitMut for CodeTransformer {
 
                         // Then handle the default implementation
                         if method.default.is_some()
+                            && self.no_function_bodies
                             && !Self::analyze_return_type(&method.sig.output)
                         {
                             method.default = Some(parse_quote!({}));
@@ -361,8 +370,10 @@ impl VisitMut for CodeTransformer {
                     if let ImplItem::Fn(method) = impl_item {
                         Self::process_attributes(&mut method.attrs, self.no_comments);
 
-                        if is_derived
-                            || (!is_serialize && !Self::analyze_return_type(&method.sig.output))
+                        if self.no_function_bodies
+                            && (is_derived
+                                || (!is_serialize
+                                    && !Self::analyze_return_type(&method.sig.output)))
                         {
                             method.block = parse_quote!({});
                         }
@@ -402,11 +413,11 @@ mod tests {
             }
         "#;
 
-        let result = process_code(input, false)?;
-
+        // Test with no_function_bodies = true
+        let result = process_code(input, false, true)?;
         let expected = r#"fn add(a: i32, b: i32) -> i32 {}"#;
-
         assert_eq!(result.trim(), expected.trim());
+
         Ok(())
     }
 
@@ -417,14 +428,19 @@ mod tests {
             fn to_string(&self) -> String {
                 "test".to_string()
             }
+            
+            fn get_number(&self) -> i32 {
+                42
+            }
         }
     "#;
         let expected = r#"impl MyStruct {
     fn to_string(&self) -> String {
         "test".to_string()
     }
+    fn get_number(&self) -> i32 {}
 }"#;
-        assert_eq!(process_code(input, false)?.trim(), expected.trim());
+        assert_eq!(process_code(input, false, true)?.trim(), expected.trim());
         Ok(())
     }
 
@@ -440,6 +456,10 @@ mod tests {
             fn serialize(&self) -> String {
                 serde_json::to_string(self).unwrap()
             }
+            
+            fn get_number(&self) -> i32 {
+                42
+            }
         }
     "#;
         let expected = r#"#[derive(Serialize)]
@@ -450,8 +470,9 @@ impl MyStruct {
     fn serialize(&self) -> String {
         serde_json::to_string(self).unwrap()
     }
+    fn get_number(&self) -> i32 {}
 }"#;
-        assert_eq!(process_code(input, false)?.trim(), expected.trim());
+        assert_eq!(process_code(input, false, true)?.trim(), expected.trim());
         Ok(())
     }
 
@@ -481,7 +502,7 @@ impl MyStruct {
     }
     fn get_number(&self) -> Option<i32> {}
 }"#;
-        assert_eq!(process_code(input, false)?.trim(), expected.trim());
+        assert_eq!(process_code(input, false, true)?.trim(), expected.trim());
         Ok(())
     }
 
@@ -509,7 +530,7 @@ impl MyStruct {
         state.end()
     }
 }"#;
-        assert_eq!(process_code(input, false)?.trim(), expected.trim());
+        assert_eq!(process_code(input, false, true)?.trim(), expected.trim());
         Ok(())
     }
 
@@ -582,7 +603,7 @@ impl MyStruct {
         // Test with comments enabled
         for (input, expected) in test_cases {
             assert_eq!(
-                process_code(input, false)?.trim(),
+                process_code(input, false, true)?.trim(),
                 expected.trim(),
                 "Failed with comments enabled"
             );
@@ -605,7 +626,7 @@ impl MyStruct {
 }"#;
 
         assert_eq!(
-            process_code(no_comments_input, true)?.trim(),
+            process_code(no_comments_input, true, true)?.trim(),
             no_comments_expected.trim(),
             "Failed with comments disabled"
         );
@@ -641,11 +662,11 @@ struct MyStruct {
 }"#;
 
         assert_eq!(
-            process_code(input, false)?.trim(),
+            process_code(input, false, true)?.trim(),
             expected_with_comments.trim()
         );
         assert_eq!(
-            process_code(input, true)?.trim(),
+            process_code(input, true, true)?.trim(),
             expected_no_comments.trim()
         );
         Ok(())
@@ -679,11 +700,11 @@ struct MyStruct {
 }"#;
 
         assert_eq!(
-            process_code(input, false)?.trim(),
+            process_code(input, false, true)?.trim(),
             expected_with_comments.trim()
         );
         assert_eq!(
-            process_code(input, true)?.trim(),
+            process_code(input, true, true)?.trim(),
             expected_no_comments.trim()
         );
         Ok(())
@@ -716,11 +737,11 @@ struct MyStruct {
 }"#;
 
         assert_eq!(
-            process_code(input, false)?.trim(),
+            process_code(input, false, true)?.trim(),
             expected_with_comments.trim()
         );
         assert_eq!(
-            process_code(input, true)?.trim(),
+            process_code(input, true, true)?.trim(),
             expected_no_comments.trim()
         );
         Ok(())
@@ -757,13 +778,101 @@ struct MyStruct {
 }"#;
 
         assert_eq!(
-            process_code(input, false)?.trim(),
+            process_code(input, false, true)?.trim(),
             expected_with_comments.trim()
         );
         assert_eq!(
-            process_code(input, true)?.trim(),
+            process_code(input, true, true)?.trim(),
             expected_no_comments.trim()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_function_bodies_behavior() -> Result<()> {
+        let test_cases = vec![
+            (
+                // Case 1: Regular functions should have empty bodies
+                r#"
+                 fn regular_function(x: i32) -> i32 {
+                     x + 42
+                 }
+                 "#,
+                r#"fn regular_function(x: i32) -> i32 {}"#,
+            ),
+            (
+                // Case 2: String-returning functions should keep their bodies
+                r#"
+                 fn string_function() -> String {
+                     "hello".to_string()
+                 }
+                 "#,
+                r#"fn string_function() -> String {
+    "hello".to_string()
+}"#,
+            ),
+            (
+                // Case 3: Result<String> functions should keep their bodies
+                r#"
+                 fn result_string() -> Result<String, Error> {
+                     Ok("success".to_string())
+                 }
+                 "#,
+                r#"fn result_string() -> Result<String, Error> {
+    Ok("success".to_string())
+}"#,
+            ),
+            (
+                // Case 4: Option<&str> functions should keep their bodies
+                r#"
+                 fn optional_str() -> Option<&'static str> {
+                     Some("maybe")
+                 }
+                 "#,
+                r#"fn optional_str() -> Option<&'static str> {
+    Some("maybe")
+}"#,
+            ),
+            (
+                // Case 5: Non-string Result functions should have empty bodies
+                r#"
+                 fn result_number() -> Result<i32, Error> {
+                     Ok(42)
+                 }
+                 "#,
+                r#"fn result_number() -> Result<i32, Error> {}"#,
+            ),
+            (
+                // Case 6: Impl blocks with mixed methods
+                r#"
+                 impl MyStruct {
+                     fn get_number(&self) -> i32 {
+                         42
+                     }
+
+                     fn get_name(&self) -> String {
+                         "test".to_string()
+                     }
+                 }
+                 "#,
+                r#"impl MyStruct {
+    fn get_number(&self) -> i32 {}
+    fn get_name(&self) -> String {
+        "test".to_string()
+    }
+}"#,
+            ),
+        ];
+
+        for (input, expected) in test_cases {
+            assert_eq!(
+                process_code(input, false, true)?.trim(),
+                expected.trim(),
+                "Failed for input:\n{}",
+                input
+            );
+        }
+
         Ok(())
     }
 
@@ -819,13 +928,114 @@ pub mod outer_module {
 }"#;
 
         assert_eq!(
-            process_code(input, false)?.trim(),
+            process_code(input, false, true)?.trim(),
             expected_with_comments.trim()
         );
         assert_eq!(
-            process_code(input, true)?.trim(),
+            process_code(input, true, true)?.trim(),
             expected_no_comments.trim()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_function_bodies_impl() -> Result<()> {
+        let input = r#"
+         impl MyStruct {
+             fn regular_method(&self) -> i32 {
+                 42
+             }
+
+             fn string_method(&self) -> String {
+                 "hello".to_string()
+             }
+
+             fn option_string(&self) -> Option<String> {
+                 Some("hello".to_string())
+             }
+
+             fn result_string(&self) -> Result<String, Error> {
+                 Ok("hello".to_string())
+             }
+         }
+         "#;
+
+        let expected = r#"impl MyStruct {
+    fn regular_method(&self) -> i32 {}
+    fn string_method(&self) -> String {
+        "hello".to_string()
+    }
+    fn option_string(&self) -> Option<String> {
+        Some("hello".to_string())
+    }
+    fn result_string(&self) -> Result<String, Error> {
+        Ok("hello".to_string())
+    }
+}"#;
+
+        assert_eq!(process_code(input, false, true)?.trim(), expected.trim());
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_function_bodies_trait() -> Result<()> {
+        let input = r#"
+         trait MyTrait {
+             fn required_method(&self) -> i32;
+
+             fn default_method(&self) -> i32 {
+                 42
+             }
+
+             fn string_method(&self) -> String {
+                 "hello".to_string()
+             }
+
+             fn option_string(&self) -> Option<String> {
+                 Some("hello".to_string())
+             }
+         }
+         "#;
+
+        let expected = r#"trait MyTrait {
+    /// This is a required method
+    fn required_method(&self) -> i32;
+    /// There is a default implementation
+    fn default_method(&self) -> i32 {}
+    /// There is a default implementation
+    fn string_method(&self) -> String {
+        "hello".to_string()
+    }
+    /// There is a default implementation
+    fn option_string(&self) -> Option<String> {
+        Some("hello".to_string())
+    }
+}"#;
+
+        assert_eq!(process_code(input, false, true)?.trim(), expected.trim());
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_function_bodies_derive() -> Result<()> {
+        let input = r#"
+         #[derive(Debug)]
+         struct MyStruct;
+
+         impl Debug for MyStruct {
+             fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                 write!(f, "MyStruct")
+             }
+         }
+         "#;
+
+        let expected = r#"#[derive(Debug)]
+struct MyStruct;
+impl Debug for MyStruct {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {}
+}"#;
+
+        assert_eq!(process_code(input, false, true)?.trim(), expected.trim());
         Ok(())
     }
 }

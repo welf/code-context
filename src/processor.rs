@@ -31,6 +31,7 @@ pub trait Processor {
     fn dry_run(&self) -> bool;
     fn single_file(&self) -> bool;
     fn no_comments(&self) -> bool;
+    fn no_function_body(&self) -> bool;
     fn process_file(&self, input: &Path, output: &Path) -> Result<(usize, usize)>;
 
     fn process_directory_to_single_file(
@@ -72,7 +73,7 @@ pub trait Processor {
             }
 
             let mut analyzer = RustAnalyzer::new(&content)?;
-            let mut transformer = CodeTransformer::new(self.no_comments());
+            let mut transformer = CodeTransformer::new(self.no_comments(), self.no_function_body());
             transformer.visit_file_mut(&mut analyzer.ast);
 
             let processed_content = prettyplease::unparse(&analyzer.ast);
@@ -236,14 +237,21 @@ pub trait Processor {
 
 pub struct FileProcessor {
     no_comments: bool,
+    no_function_bodies: bool,
     dry_run: bool,
     single_file: bool,
 }
 
 impl FileProcessor {
-    pub fn with_options(no_comments: bool, dry_run: bool, single_file: bool) -> Self {
+    pub fn with_options(
+        no_comments: bool,
+        no_function_bodies: bool,
+        dry_run: bool,
+        single_file: bool,
+    ) -> Self {
         Self {
             no_comments,
+            no_function_bodies,
             dry_run,
             single_file,
         }
@@ -261,6 +269,10 @@ impl Processor for FileProcessor {
 
     fn no_comments(&self) -> bool {
         self.no_comments
+    }
+
+    fn no_function_body(&self) -> bool {
+        self.no_function_bodies
     }
 
     fn process_file(&self, input: &Path, output: &Path) -> Result<(usize, usize)> {
@@ -284,7 +296,7 @@ impl Processor for FileProcessor {
         }
 
         let mut analyzer = RustAnalyzer::new(&content)?;
-        let mut transformer = CodeTransformer::new(self.no_comments);
+        let mut transformer = CodeTransformer::new(self.no_comments(), self.no_function_body());
 
         transformer.visit_file_mut(&mut analyzer.ast);
 
@@ -319,7 +331,7 @@ mod tests {
         let test_file = temp_dir.path().join("test.rs");
         fs::write(&test_file, "fn main() {}")?;
 
-        let processor = FileProcessor::with_options(false, false, false);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let stats = processor.process_path(&test_file, Some("output"))?;
 
         assert_eq!(stats.files_processed, 1);
@@ -343,7 +355,7 @@ mod tests {
             "pub fn add(a: i32, b: i32) -> i32 { a + b }",
         )?;
 
-        let processor = FileProcessor::with_options(false, false, true);
+        let processor = FileProcessor::with_options(false, false, false, true);
         let output_dir = temp_dir.path().join("output");
         let stats = processor.process_directory_to_single_file(input_dir, &output_dir)?;
 
@@ -370,7 +382,7 @@ mod tests {
             "pub fn add(a: i32, b: i32) -> i32 { a + b }",
         )?;
 
-        let processor = FileProcessor::with_options(false, false, false);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let output_dir = temp_dir.path().join("output");
         let stats = processor.process_directory(input_dir, &output_dir)?;
 
@@ -447,7 +459,7 @@ mod tests {
     fn test_invalid_input_path() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let invalid_path = temp_dir.path().join("nonexistent");
-        let processor = FileProcessor::with_options(false, true, false);
+        let processor = FileProcessor::with_options(false, true, false, false);
 
         let result = processor.process_path(&invalid_path, None);
         assert!(result.is_err());
@@ -458,7 +470,7 @@ mod tests {
 
     #[test]
     fn test_processor_options() {
-        let processor = FileProcessor::with_options(true, true, true);
+        let processor = FileProcessor::with_options(true, true, true, true);
         assert!(processor.no_comments());
         assert!(processor.dry_run());
         assert!(processor.single_file());
@@ -467,7 +479,7 @@ mod tests {
     #[test]
     fn test_process_directory_empty() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let processor = FileProcessor::with_options(false, false, false);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let stats = processor.process_directory(temp_dir.path(), temp_dir.path())?;
         assert_eq!(stats.files_processed, 0);
         Ok(())
@@ -499,7 +511,7 @@ mod tests {
     }
     fn get_result_number(&self) -> Result<i32, Error> {}
 }"#;
-        assert_eq!(process_code(input, false)?.trim(), expected.trim());
+        assert_eq!(process_code(input, false, true)?.trim(), expected.trim());
         Ok(())
     }
 
@@ -519,7 +531,7 @@ impl MyStruct {
         Cow::Borrowed("test")
     }
 }"#;
-        assert_eq!(process_code(input, false)?.trim(), expected.trim());
+        assert_eq!(process_code(input, false, true)?.trim(), expected.trim());
         Ok(())
     }
 
@@ -537,7 +549,7 @@ impl MyStruct {
 impl MyStruct {
     fn derived_method(&self) -> String {}
 }"#;
-        assert_eq!(process_code(input, false)?.trim(), expected.trim());
+        assert_eq!(process_code(input, false, true)?.trim(), expected.trim());
         Ok(())
     }
 
@@ -545,7 +557,15 @@ impl MyStruct {
     fn test_main_full_workflow() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let test_file = temp_dir.path().join("test.rs");
-        fs::write(&test_file, "fn main() { println!(\"test\"); }")?;
+        fs::write(
+            &test_file,
+            r#"fn main() {
+            println!("test");
+            println!("more code to increase size");
+            let x = 42;
+            println!("The answer is {}", x);
+        }"#,
+        )?;
 
         let args = vec![
             "program",
@@ -598,7 +618,7 @@ impl MyStruct {
             "#,
         )?;
 
-        let processor = FileProcessor::with_options(false, false, false);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let output_dir = temp_dir.path().join("output");
         let stats = processor.process_directory(&src_dir, &output_dir)?;
 
@@ -638,7 +658,7 @@ impl MyStruct {
             "#,
         )?;
 
-        let processor = FileProcessor::with_options(false, false, false);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let output_dir = temp_dir.path().join("output");
         let stats = processor.process_directory(&src_dir, &output_dir)?;
 
@@ -672,7 +692,7 @@ impl MyStruct {
         )?;
 
         // Test with comments preserved
-        let processor = FileProcessor::with_options(false, false, false);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let output_dir = temp_dir.path().join("output-with-comments");
         processor.process_directory(&src_dir, &output_dir)?;
 
@@ -681,7 +701,7 @@ impl MyStruct {
         assert!(content.contains("/// Function documentation"));
 
         // Test with comments removed
-        let processor = FileProcessor::with_options(true, false, false);
+        let processor = FileProcessor::with_options(true, false, false, false);
         let output_dir = temp_dir.path().join("output-no-comments");
         processor.process_directory(&src_dir, &output_dir)?;
 
@@ -701,14 +721,21 @@ impl MyStruct {
         // Create multiple source files
         fs::write(
             src_dir.join("main.rs"),
-            r#"fn main() { println!("main"); }"#,
+            r#"fn main() {
+                println!("Hello");
+                println!("This is a much longer function");
+                let x = 42;
+                let y = x * 2;
+                println!("The answer is: {}", x);
+                println!("Double the answer is: {}", y);
+            }"#,
         )?;
         fs::write(
             src_dir.join("lib.rs"),
             r#"pub fn lib_function() { println!("lib"); }"#,
         )?;
 
-        let processor = FileProcessor::with_options(false, false, true);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let output_dir = temp_dir.path().join("output");
         let stats = processor.process_directory_to_single_file(&src_dir, &output_dir)?;
 
@@ -728,7 +755,7 @@ impl MyStruct {
         let temp_dir = TempDir::new()?;
         let nonexistent_parent = temp_dir.path().join("nonexistent").join("test.rs");
 
-        let processor = FileProcessor::with_options(false, false, false);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let result = processor.process_path(&nonexistent_parent, None);
 
         assert!(result.is_err());
@@ -744,7 +771,7 @@ impl MyStruct {
         fs::write(temp_dir.path().join("test.txt"), "not rust")?;
         fs::write(temp_dir.path().join("test.rs.txt"), "not rust module")?;
 
-        let processor = FileProcessor::with_options(false, false, false);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let stats = processor.process_directory(temp_dir.path(), temp_dir.path())?;
 
         // Should skip non-rust and .rs.txt files
@@ -758,7 +785,7 @@ impl MyStruct {
         let rust_file = temp_dir.path().join("test.rs");
         fs::write(&rust_file, "invalid rust code @#$%")?;
 
-        let processor = FileProcessor::with_options(false, false, false);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let result = processor.process_directory(temp_dir.path(), temp_dir.path());
 
         assert!(result.is_err());
@@ -781,7 +808,7 @@ impl MyStruct {
         let output_path = temp_dir.path().join("output");
         fs::write(&output_path, "blocking file")?;
 
-        let processor = FileProcessor::with_options(false, false, false);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let result = processor.process_directory(&src_dir, &output_path);
 
         assert!(result.is_err());
@@ -796,7 +823,7 @@ impl MyStruct {
     fn test_process_directory_to_single_file_empty() -> Result<()> {
         let temp_dir = TempDir::new()?;
 
-        let processor = FileProcessor::with_options(false, false, true);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let stats = processor.process_directory_to_single_file(temp_dir.path(), temp_dir.path())?;
 
         assert_eq!(stats.files_processed, 0);
@@ -810,7 +837,7 @@ impl MyStruct {
         let temp_dir = TempDir::new()?;
         fs::write(temp_dir.path().join("test.rs"), "invalid rust @#$%")?;
 
-        let processor = FileProcessor::with_options(false, false, true);
+        let processor = FileProcessor::with_options(false, false, true, false);
         let result = processor.process_directory_to_single_file(temp_dir.path(), temp_dir.path());
 
         assert!(result.is_err());
@@ -832,7 +859,7 @@ impl MyStruct {
         let output_file = temp_dir.path().join("output");
         fs::create_dir(&output_file)?;
 
-        let processor = FileProcessor::with_options(false, false, false);
+        let processor = FileProcessor::with_options(false, false, false, false);
         let result = processor.process_file(&input_file, &output_file);
 
         assert!(result.is_err());
