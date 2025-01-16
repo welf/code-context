@@ -24,6 +24,8 @@ pub trait Processor {
     /// This is a required method
     fn no_comments(&self) -> bool;
     /// This is a required method
+    fn no_function_body(&self) -> bool;
+    /// This is a required method
     fn process_file(&self, input: &Path, output: &Path) -> Result<(usize, usize)>;
     /// There is a default implementation
     fn process_directory_to_single_file(
@@ -48,16 +50,23 @@ pub trait Processor {
 }
 pub struct FileProcessor {
     no_comments: bool,
+    no_function_bodies: bool,
     dry_run: bool,
     single_file: bool,
 }
 impl FileProcessor {
-    pub fn with_options(no_comments: bool, dry_run: bool, single_file: bool) -> Self {}
+    pub fn with_options(
+        no_comments: bool,
+        no_function_bodies: bool,
+        dry_run: bool,
+        single_file: bool,
+    ) -> Self {}
 }
 impl Processor for FileProcessor {
     fn dry_run(&self) -> bool {}
     fn single_file(&self) -> bool {}
     fn no_comments(&self) -> bool {}
+    fn no_function_body(&self) -> bool {}
     fn process_file(&self, input: &Path, output: &Path) -> Result<(usize, usize)> {}
 }
 
@@ -102,7 +111,10 @@ struct Cli {
     /// Remove all comments (including doc comments)
     #[arg(long)]
     no_comments: bool,
-    /// Print processing statistics
+    /// Remove function bodies except for string/serialization methods
+    #[arg(long)]
+    no_function_bodies: bool,
+    /// Don't print processing statistics
     #[arg(long)]
     no_stats: bool,
     /// Run without writing output files
@@ -136,10 +148,11 @@ impl RustAnalyzer {
 }
 pub struct CodeTransformer {
     no_comments: bool,
+    no_function_bodies: bool,
 }
 impl CodeTransformer {
     /// Creates a new CodeTransformer instance
-    pub fn new(no_comments: bool) -> Self {}
+    pub fn new(no_comments: bool, no_function_bodies: bool) -> Self {}
     /// Gets attributes from any Item type
     fn get_attrs(item: &Item) -> &[Attribute] {}
     /// Gets mutable attributes from any Item type

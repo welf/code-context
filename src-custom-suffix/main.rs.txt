@@ -17,7 +17,10 @@ struct Cli {
     /// Remove all comments (including doc comments)
     #[arg(long)]
     no_comments: bool,
-    /// Print processing statistics
+    /// Remove function bodies except for string/serialization methods
+    #[arg(long)]
+    no_function_bodies: bool,
+    /// Don't print processing statistics
     #[arg(long)]
     no_stats: bool,
     /// Run without writing output files

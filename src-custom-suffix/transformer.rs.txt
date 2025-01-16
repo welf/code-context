@@ -16,10 +16,11 @@ impl RustAnalyzer {
 }
 pub struct CodeTransformer {
     no_comments: bool,
+    no_function_bodies: bool,
 }
 impl CodeTransformer {
     /// Creates a new CodeTransformer instance
-    pub fn new(no_comments: bool) -> Self {}
+    pub fn new(no_comments: bool, no_function_bodies: bool) -> Self {}
     /// Gets attributes from any Item type
     fn get_attrs(item: &Item) -> &[Attribute] {}
     /// Gets mutable attributes from any Item type
